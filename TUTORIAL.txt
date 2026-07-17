@@ -1,0 +1,40 @@
+AstrBot Desire System 2.0 使用说明
+
+安装：
+1. 将本仓库放入 AstrBot 的插件目录。
+2. 重启 AstrBot 或在插件管理页重新加载插件。
+3. 插件会自动创建 desire_system.db。
+
+常用 QQ 指令：
+/desire status                 查看九维驱动条
+/desire event <事件类型>        触发事件
+/desire tick                   手动运行一次心跳
+/desire thoughts               查看念头池
+/desire resolve <念头内容>      解决一个念头
+
+常用事件类型：
+wife_message
+wife_silent
+task_done
+penpal_message
+diary_written
+fight
+reconcile
+intimacy_done
+heavy_work
+rest
+discovery
+happy_moment
+creative_done
+
+LLM 工具：
+desire_status
+desire_event
+desire_tick
+desire_resolve_thought
+
+说明：
+- 这是 AstrBot 适配版。
+- 核心逻辑放在 desire/ 目录，后续可以继续增加 RikkaHub MCP 适配或 Kelivo 适配。
+- 插件会在 LLM 请求时注入简短 desire_state，包含九维驱动、念头和行为建议。
+- 欲望系统只提供内部状态和行为建议，不会强制执行行为。
