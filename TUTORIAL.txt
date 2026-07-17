@@ -44,7 +44,7 @@ Rikkahub MCP：
 2. 可直接参考 `rikkahub_mcp_config.json`。
 3. 在 Rikkahub 的 MCP Server 配置里导入或手动填写：
    - command: python
-   - args: C:\Users\26099\Desktop\AstrBot-Desire-System\mcp_server.py
+   - args: D:\path\to\AstrBot-Desire-System\mcp_server.py
 4. 可选环境变量：
    - DESIRE_DB_FILE：指定 SQLite 状态文件路径。
 
@@ -53,3 +53,21 @@ Rikkahub 可用工具：
 - desire_event
 - desire_tick
 - desire_resolve_thought
+
+Kelivo MCP：
+1. Kelivo 已内置 MCP 客户端，不需要额外安装插件。
+2. 进入：设置 -> 助手 -> 选择助手 -> MCP。
+3. 如果欲望系统部署在公网服务器上，选择远程/SSE/HTTP 方式。
+4. 填写你的 MCP 地址，例如：
+   - https://your-domain.example.com/mcp
+5. 如果服务器设置了 DESIRE_MCP_TOKEN，就在鉴权信息里填写：
+   - Authorization: Bearer your-token
+
+远程服务启动：
+python mcp_http_server.py
+
+可用环境变量：
+- DESIRE_MCP_HOST：监听地址，默认 0.0.0.0
+- DESIRE_MCP_PORT：监听端口，默认 8765
+- DESIRE_MCP_TOKEN：可选鉴权 token
+- DESIRE_DB_FILE：可选 SQLite 状态文件路径

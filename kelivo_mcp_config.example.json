@@ -1,0 +1,8 @@
+{
+  "type": "sse",
+  "name": "astrbot-desire-system",
+  "url": "https://your-domain.example.com/mcp",
+  "headers": {
+    "Authorization": "Bearer replace-with-your-token"
+  }
+}
