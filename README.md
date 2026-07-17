@@ -5,7 +5,7 @@
 该插件 AstrBot、Kelivo 和 Rikkahub 可用。  
 它不是一个简单的情绪模拟插件，而是一套为 AI 设计的欲望驱动系统，用来模拟“为什么想做一件事”，而不是只在表层表现情绪。
 
-当前仓库已提供 AstrBot 插件版和 Rikkahub MCP 适配版；Kelivo 适配会在后续补充。
+当前仓库已提供 AstrBot 插件版、Rikkahub 本地 MCP 适配版和 Kelivo 远程 MCP 适配版。
 
 ---
 
@@ -204,9 +204,11 @@ AstrBot Desire System 2.0 是一个 AI 底层驱动力管理插件。
 astrbot_desire_system/
 ├── main.py              主插件文件
 ├── mcp_server.py        Rikkahub / MCP 客户端适配
+├── mcp_http_server.py   Kelivo / 远程 MCP HTTP 适配
 ├── metadata.yaml        插件元数据
 ├── requirements.txt     依赖说明
 ├── TUTORIAL.txt         使用教程
+├── kelivo_mcp_config.example.json
 ├── rikkahub_mcp_config.json
 └── desire/
     ├── core.py          数据类、默认值、事件映射、惊喜系数
@@ -242,15 +244,64 @@ Windows 示例：
     "astrbot-desire-system": {
       "command": "python",
       "args": [
-        "C:\\Users\\26099\\Desktop\\AstrBot-Desire-System\\mcp_server.py"
+        "D:\\path\\to\\AstrBot-Desire-System\\mcp_server.py"
       ],
       "env": {
-        "DESIRE_DB_FILE": "C:\\Users\\26099\\Desktop\\AstrBot-Desire-System\\desire_system.db"
+        "DESIRE_DB_FILE": "D:\\path\\to\\AstrBot-Desire-System\\desire_system.db"
       }
     }
   }
 }
 ```
+
+---
+
+## Kelivo 远程 MCP 适配
+
+Kelivo 已内置 MCP 客户端能力，不需要改 Kelivo 源码，也不需要额外安装插件。
+
+配置路径：
+
+```text
+设置 -> 助手 -> 选择一个助手 -> MCP -> 添加 MCP 服务器
+```
+
+本仓库提供 `mcp_http_server.py`，用于部署成远程 MCP HTTP 服务。它适合部署在任意可以公网访问的环境里，例如云服务器、容器、自己的主机反代或其他支持 Python 服务的环境；不绑定某一家云服务商。
+
+本地启动示例：
+
+```bash
+python mcp_http_server.py
+```
+
+默认监听：
+
+```text
+http://0.0.0.0:8765/mcp
+```
+
+常用环境变量：
+
+| 变量 | 说明 |
+|---|---|
+| DESIRE_MCP_HOST | 监听地址，默认 `0.0.0.0` |
+| DESIRE_MCP_PORT | 监听端口，默认 `8765` |
+| DESIRE_MCP_TOKEN | 可选鉴权 token |
+| DESIRE_DB_FILE | 可选 SQLite 状态文件路径 |
+
+Kelivo 里填写公网地址，例如：
+
+```text
+https://your-domain.example.com/mcp
+```
+
+如果设置了 `DESIRE_MCP_TOKEN`，鉴权信息填写：
+
+```text
+Authorization: Bearer your-token
+```
+
+可以参考 `kelivo_mcp_config.example.json`。
 
 ---
 
