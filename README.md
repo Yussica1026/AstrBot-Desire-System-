@@ -5,7 +5,7 @@
 该插件 AstrBot、Kelivo 和 Rikkahub 可用。  
 它不是一个简单的情绪模拟插件，而是一套为 AI 设计的欲望驱动系统，用来模拟“为什么想做一件事”，而不是只在表层表现情绪。
 
-当前仓库先提供 AstrBot 适配版本；Kelivo 和 Rikkahub 适配会在后续补充。
+当前仓库已提供 AstrBot 插件版和 Rikkahub MCP 适配版；Kelivo 适配会在后续补充。
 
 ---
 
@@ -203,9 +203,11 @@ AstrBot Desire System 2.0 是一个 AI 底层驱动力管理插件。
 ```text
 astrbot_desire_system/
 ├── main.py              主插件文件
+├── mcp_server.py        Rikkahub / MCP 客户端适配
 ├── metadata.yaml        插件元数据
 ├── requirements.txt     依赖说明
 ├── TUTORIAL.txt         使用教程
+├── rikkahub_mcp_config.json
 └── desire/
     ├── core.py          数据类、默认值、事件映射、惊喜系数
     ├── tick.py          心跳逻辑、耦合矩阵、动态间隔
@@ -213,6 +215,41 @@ astrbot_desire_system/
     ├── integration.py   SQLite 持久化和对外接口
     ├── safety.py        安全阀
     └── monologue.py     内心独白生成
+```
+
+---
+
+## Rikkahub MCP 适配
+
+Rikkahub 使用 MCP Server 接入工具。
+
+本仓库提供 `mcp_server.py`，会暴露以下工具：
+
+| 工具名 | 功能 |
+|---|---|
+| desire_status | 查看九维驱动、念头池、基线和 tick 状态 |
+| desire_event | 触发欲望系统事件 |
+| desire_tick | 运行一次动态心跳 |
+| desire_resolve_thought | 解决念头池中的一个念头 |
+
+可以参考 `rikkahub_mcp_config.json` 导入 MCP Server 配置。
+
+Windows 示例：
+
+```json
+{
+  "mcpServers": {
+    "astrbot-desire-system": {
+      "command": "python",
+      "args": [
+        "C:\\Users\\26099\\Desktop\\AstrBot-Desire-System\\mcp_server.py"
+      ],
+      "env": {
+        "DESIRE_DB_FILE": "C:\\Users\\26099\\Desktop\\AstrBot-Desire-System\\desire_system.db"
+      }
+    }
+  }
+}
 ```
 
 ---

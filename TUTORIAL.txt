@@ -35,6 +35,21 @@ desire_resolve_thought
 
 说明：
 - 这是 AstrBot 适配版。
-- 核心逻辑放在 desire/ 目录，后续可以继续增加 RikkaHub MCP 适配或 Kelivo 适配。
+- 核心逻辑放在 desire/ 目录，AstrBot 和 Rikkahub MCP 适配共用同一套核心逻辑。
 - 插件会在 LLM 请求时注入简短 desire_state，包含九维驱动、念头和行为建议。
 - 欲望系统只提供内部状态和行为建议，不会强制执行行为。
+
+Rikkahub MCP：
+1. 使用 `mcp_server.py` 作为 stdio MCP Server。
+2. 可直接参考 `rikkahub_mcp_config.json`。
+3. 在 Rikkahub 的 MCP Server 配置里导入或手动填写：
+   - command: python
+   - args: C:\Users\26099\Desktop\AstrBot-Desire-System\mcp_server.py
+4. 可选环境变量：
+   - DESIRE_DB_FILE：指定 SQLite 状态文件路径。
+
+Rikkahub 可用工具：
+- desire_status
+- desire_event
+- desire_tick
+- desire_resolve_thought
