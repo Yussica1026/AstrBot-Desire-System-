@@ -67,8 +67,12 @@ class DesireMCPServer:
 
     def call_tool(self, name: str, arguments: dict[str, Any] | None) -> dict[str, Any]:
         arguments = arguments or {}
+        # Desktop/mobile MCP processes may sleep or be recreated between calls.
+        # Reconcile elapsed heartbeats before every observable operation.
+        if name != "desire_tick":
+            self.engine.tick_if_due()
         if name == "desire_status":
-            result = self.engine.summary()
+            result = self.engine.summary(catch_up=False)
         elif name == "desire_event":
             result = self.engine.trigger_event(str(arguments.get("event_type", "")))
         elif name == "desire_tick":
@@ -96,7 +100,7 @@ class DesireMCPServer:
                 "result": {
                     "protocolVersion": "2024-11-05",
                     "capabilities": {"tools": {}},
-                    "serverInfo": {"name": "astrbot-desire-system", "version": "2.0.0"},
+                    "serverInfo": {"name": "astrbot-desire-system", "version": "2.0.1"},
                 },
             }
         if method == "notifications/initialized":
