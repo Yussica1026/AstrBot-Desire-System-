@@ -13,7 +13,7 @@ AUTH_TOKEN = os.environ.get("DESIRE_MCP_TOKEN", "")
 
 
 class DesireMCPHTTPHandler(BaseHTTPRequestHandler):
-    server_version = "AstrBotDesireMCP/2.0"
+    server_version = "AstrBotDesireMCP/2.0.1"
 
     def _send_json(self, status: int, payload: dict[str, Any]) -> None:
         data = json.dumps(payload, ensure_ascii=False).encode("utf-8")
@@ -57,7 +57,7 @@ class DesireMCPHTTPHandler(BaseHTTPRequestHandler):
         self.end_headers()
         event = {
             "name": "astrbot-desire-system",
-            "version": "2.0.0",
+            "version": "2.0.1",
             "message": "MCP HTTP endpoint is ready. Send JSON-RPC requests with POST /mcp.",
         }
         self.wfile.write(f"event: ready\ndata: {json.dumps(event, ensure_ascii=False)}\n\n".encode("utf-8"))

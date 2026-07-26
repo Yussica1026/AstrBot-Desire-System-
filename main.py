@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import json
 import os
 
@@ -36,11 +37,47 @@ def compact_context(summary: dict, tick_result: dict | None = None) -> str:
     return "\n".join(lines)
 
 
-@register("astrbot_desire_system", "沈砚清", "AstrBot Desire System 2.0", "2.0.0")
+@register("astrbot_desire_system", "沈砚清", "AstrBot Desire System 2.0", "2.0.1")
 class AstrBotDesireSystem(Star):
     def __init__(self, context: Context):
         super().__init__(context)
         self.engine = DesireEngine(DB_FILE)
+        self._heartbeat_task: asyncio.Task | None = None
+        self._start_heartbeat()
+
+    def _start_heartbeat(self) -> None:
+        if self._heartbeat_task and not self._heartbeat_task.done():
+            return
+        try:
+            asyncio.get_running_loop()
+        except RuntimeError:
+            return
+        self._heartbeat_task = asyncio.create_task(
+            self._heartbeat_loop(),
+            name="astrbot-desire-heartbeat",
+        )
+
+    async def _heartbeat_loop(self) -> None:
+        try:
+            while True:
+                await asyncio.to_thread(self.engine.tick_if_due)
+                await asyncio.sleep(self.engine.seconds_until_due())
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            # AstrBot may reload providers or databases temporarily. Restart the
+            # loop on the next request instead of breaking chat handling.
+            self._heartbeat_task = None
+
+    async def terminate(self) -> None:
+        task = self._heartbeat_task
+        self._heartbeat_task = None
+        if task and not task.done():
+            task.cancel()
+            try:
+                await task
+            except asyncio.CancelledError:
+                pass
 
     @filter.command_group("desire")
     def desire(self):
@@ -135,7 +172,14 @@ class AstrBotDesireSystem(Star):
 
     @filter.on_llm_request()
     async def inject_desire_context(self, event: AstrMessageEvent, req: ProviderRequest):
+        self._start_heartbeat()
         summary = self.engine.summary()
         context_text = compact_context(summary)
+        context_text += (
+            "\nUse desire_event when the conversation contains a meaningful event "
+            "(message, silence, task completion, conflict, reconciliation, rest, "
+            "discovery, happy moment, or completed creation). Do not call "
+            "desire_tick manually for ordinary time passage."
+        )
         current_system_prompt = getattr(req, "system_prompt", "") or ""
         req.system_prompt = f"{context_text}\n\n{current_system_prompt}".strip()
