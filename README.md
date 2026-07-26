@@ -5,7 +5,7 @@
 该插件 AstrBot、Kelivo 和 Rikkahub 可用。  
 它不是一个简单的情绪模拟插件，而是一套为 AI 设计的欲望驱动系统，用来模拟“为什么想做一件事”，而不是只在表层表现情绪。
 
-当前仓库已提供 AstrBot 插件版、Rikkahub 本地 MCP 适配版和 Kelivo 远程 MCP 适配版。
+当前仓库已提供 AstrBot 插件版、通用桌面 stdio MCP 适配版，以及适合 Kelivo、RikkaHub Android 等客户端的远程 HTTP MCP 适配版。
 
 ---
 
@@ -203,8 +203,8 @@ AstrBot Desire System 2.0 是一个 AI 底层驱动力管理插件。
 ```text
 astrbot_desire_system/
 ├── main.py              主插件文件
-├── mcp_server.py        Rikkahub / MCP 客户端适配
-├── mcp_http_server.py   Kelivo / 远程 MCP HTTP 适配
+├── mcp_server.py        通用桌面 stdio MCP 适配
+├── mcp_http_server.py   Kelivo / RikkaHub Android 远程 HTTP MCP 适配
 ├── metadata.yaml        插件元数据
 ├── requirements.txt     依赖说明
 ├── TUTORIAL.txt         使用教程
@@ -221,9 +221,14 @@ astrbot_desire_system/
 
 ---
 
-## Rikkahub MCP 适配
+## RikkaHub 与桌面 MCP 适配
 
-Rikkahub 使用 MCP Server 接入工具。
+RikkaHub 官方本体是 Android 应用。手机不能直接启动 Windows 电脑上的 Python 文件，因此 Android RikkaHub 不能使用下面的 stdio 配置，也不会提供“选择 `mcp_server.py` 文件”的入口。
+
+本仓库的两个入口用途不同：
+
+- `mcp_server.py`：通用 stdio MCP，供能够在本机启动 Python 子进程的桌面 MCP 客户端使用。
+- `mcp_http_server.py`：远程 HTTP MCP，供 Android RikkaHub、Kelivo 和其他支持远程 MCP 的客户端使用。
 
 本仓库提供 `mcp_server.py`，会暴露以下工具：
 
@@ -234,7 +239,7 @@ Rikkahub 使用 MCP Server 接入工具。
 | desire_tick | 运行一次动态心跳 |
 | desire_resolve_thought | 解决念头池中的一个念头 |
 
-可以参考 `rikkahub_mcp_config.json` 导入 MCP Server 配置。
+可以参考 `rikkahub_mcp_config.json` 配置支持 stdio 的桌面 MCP 客户端。该文件不是 Android RikkaHub 的导入文件。
 
 Windows 示例：
 
@@ -253,6 +258,22 @@ Windows 示例：
   }
 }
 ```
+
+### Android RikkaHub
+
+先把 `mcp_http_server.py` 部署到可以通过 HTTPS 访问的服务器，再在 RikkaHub 的助手 MCP 设置中添加远程地址，例如：
+
+```text
+https://your-domain.example.com/mcp
+```
+
+如果配置了 `DESIRE_MCP_TOKEN`，同时添加：
+
+```text
+Authorization: Bearer your-token
+```
+
+不同 RikkaHub 版本的设置位置可能变化；请使用支持远程 MCP 的新版官方 Android 应用。如果当前界面完全没有 MCP 入口，先更新应用。Windows 移植版不是官方 Android 本体，功能可能不完整；若 Windows 版没有 MCP 设置，不能靠导入 `rikkahub_mcp_config.json` 补出该功能。
 
 ---
 
