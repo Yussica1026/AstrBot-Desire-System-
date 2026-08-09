@@ -74,7 +74,11 @@ def apply_coupling(state: DesireState) -> list[dict[str, float | str]]:
 
 def update_baselines(state: DesireState) -> None:
     for drive in DRIVE_CONFIG:
-        state.baselines[drive] = 0.995 * state.baselines[drive] + 0.005 * state.drives[drive]
+        initial = float(DRIVE_CONFIG[drive]["baseline"])
+        # EMA 继续适应近期状态，但始终受初始基线锚定，避免被长期高值无限拖走。
+        state.baselines[drive] = clamp(
+            0.985 * state.baselines[drive] + 0.005 * state.drives[drive] + 0.01 * initial
+        )
 
 
 def dynamic_interval_seconds(state: DesireState) -> int:
