@@ -94,7 +94,13 @@ def generate_thoughts(state: DesireState, rng: random.Random | None = None) -> l
 def reinforce_obsessions(state: DesireState) -> None:
     for thought in state.thoughts:
         if thought.obsession and thought.source in state.drives:
-            state.drives[thought.source] = clamp(state.drives[thought.source] + 3)
+            threshold = float(DRIVE_CONFIG[thought.source]["threshold"])
+            current = state.drives[thought.source]
+            if current >= threshold:
+                continue
+            # 执念命中越多，额外推力越弱；同时绝不越过行动阈值。
+            push = 3.0 / max(1, thought.count - 1)
+            state.drives[thought.source] = min(threshold, clamp(current + push))
 
 
 def resolve_thought(state: DesireState, text: str) -> bool:

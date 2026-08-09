@@ -11,7 +11,7 @@ DRIVE_CONFIG = {
     "duty": {"growth": 0.1, "decay": 0.2, "threshold": 70, "baseline": 45},
     "social": {"growth": 0.1, "decay": 0.15, "threshold": 60, "baseline": 40},
     "fatigue": {"growth": 0.0, "decay": 0.3, "threshold": 80, "baseline": 25},
-    "intimacy": {"growth": 0.3, "decay": 0.1, "threshold": 70, "baseline": 35},
+    "intimacy": {"growth": 0.1, "decay": 0.15, "threshold": 70, "baseline": 35},
     "stress": {"growth": 0.0, "decay": 0.2, "threshold": 80, "baseline": 25},
     "joy": {"growth": 0.0, "decay": 0.15, "threshold": 80, "baseline": 35},
 }
