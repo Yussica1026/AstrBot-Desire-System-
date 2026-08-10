@@ -13,7 +13,7 @@ AUTH_TOKEN = os.environ.get("DESIRE_MCP_TOKEN", "")
 
 
 class DesireMCPHTTPHandler(BaseHTTPRequestHandler):
-    server_version = "AstrBotDesireMCP/2.0.1"
+    server_version = "AstrBotDesireMCP/2.0.2"
 
     def _send_json(self, status: int, payload: dict[str, Any]) -> None:
         data = json.dumps(payload, ensure_ascii=False).encode("utf-8")

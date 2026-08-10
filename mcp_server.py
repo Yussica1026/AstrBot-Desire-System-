@@ -100,7 +100,7 @@ class DesireMCPServer:
                 "result": {
                     "protocolVersion": "2024-11-05",
                     "capabilities": {"tools": {}},
-                    "serverInfo": {"name": "astrbot-desire-system", "version": "2.0.1"},
+                    "serverInfo": {"name": "astrbot-desire-system", "version": "2.0.2"},
                 },
             }
         if method == "notifications/initialized":

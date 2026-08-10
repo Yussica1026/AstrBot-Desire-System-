@@ -81,6 +81,7 @@ class DesireState:
     drives: dict[str, float] = field(default_factory=default_drives)
     baselines: dict[str, float] = field(default_factory=default_baselines)
     thoughts: list[Thought] = field(default_factory=list)
+    resolved_sources: set[str] = field(default_factory=set)
     tick_count: int = 0
     last_tick: str = field(default_factory=lambda: datetime.now().isoformat(timespec="seconds"))
 
@@ -91,10 +92,12 @@ class DesireState:
         baselines = default_baselines()
         baselines.update({k: clamp(v) for k, v in dict(data.get("baselines", {})).items() if k in DRIVE_CONFIG})
         thoughts = [Thought.from_dict(item) for item in data.get("thoughts", []) if isinstance(item, dict)]
+        resolved_sources = {str(item) for item in data.get("resolved_sources", []) if str(item) in DRIVE_CONFIG}
         state = cls(
             drives=drives,
             baselines=baselines,
             thoughts=thoughts,
+            resolved_sources=resolved_sources,
             tick_count=int(data.get("tick_count", 0)),
             last_tick=str(data.get("last_tick") or datetime.now().isoformat(timespec="seconds")),
         )
@@ -106,6 +109,7 @@ class DesireState:
             "drives": self.drives,
             "baselines": self.baselines,
             "thoughts": [item.to_dict() for item in self.thoughts],
+            "resolved_sources": sorted(self.resolved_sources),
             "tick_count": self.tick_count,
             "last_tick": self.last_tick,
         }

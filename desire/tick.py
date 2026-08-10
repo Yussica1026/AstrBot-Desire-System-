@@ -19,9 +19,12 @@ COUPLING_MATRIX = {
     ("attachment", "stress"): 0.1,
     ("stress", "intimacy"): 0.2,
     ("intimacy", "stress"): -0.3,
-    ("joy", "stress"): -0.3,
-    ("joy", "fatigue"): -0.2,
-    ("joy", "curiosity"): 0.2,
+    # 快乐能缓解压力，但不能让压力在低位失去全部动态。
+    ("joy", "stress"): -0.03,
+    # 快乐只能轻微缓解疲劳，不能把疲劳直接压成 0。
+    ("joy", "fatigue"): -0.02,
+    # 快乐带来好奇心，但不能压过好奇心自身的衰减。
+    ("joy", "curiosity"): 0.02,
     ("stress", "joy"): -0.3,
     ("fatigue", "joy"): -0.2,
 }
