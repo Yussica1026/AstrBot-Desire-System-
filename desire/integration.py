@@ -34,11 +34,15 @@ class DesireEngine:
                     drives_json TEXT NOT NULL,
                     baselines_json TEXT NOT NULL,
                     thoughts_json TEXT NOT NULL,
+                    resolved_sources_json TEXT NOT NULL DEFAULT '[]',
                     tick_count INTEGER NOT NULL DEFAULT 0,
                     last_tick TEXT NOT NULL
                 )
                 """
             )
+            columns = {row["name"] for row in conn.execute("PRAGMA table_info(desire_state)")}
+            if "resolved_sources_json" not in columns:
+                conn.execute("ALTER TABLE desire_state ADD COLUMN resolved_sources_json TEXT NOT NULL DEFAULT '[]'")
             if not conn.execute("SELECT 1 FROM desire_state WHERE id = 1").fetchone():
                 state = DesireState()
                 self.save_state(state, conn)
@@ -54,6 +58,7 @@ class DesireEngine:
                 "drives": json.loads(row["drives_json"]),
                 "baselines": json.loads(row["baselines_json"]),
                 "thoughts": json.loads(row["thoughts_json"]),
+                "resolved_sources": json.loads(row["resolved_sources_json"] or "[]"),
                 "tick_count": row["tick_count"],
                 "last_tick": row["last_tick"],
             }
@@ -65,6 +70,7 @@ class DesireEngine:
             json.dumps(state.drives, ensure_ascii=False),
             json.dumps(state.baselines, ensure_ascii=False),
             json.dumps([item.to_dict() for item in state.thoughts], ensure_ascii=False),
+            json.dumps(sorted(state.resolved_sources), ensure_ascii=False),
             state.tick_count,
             state.last_tick,
         )
@@ -72,8 +78,8 @@ class DesireEngine:
             conn.execute(
                 """
                 INSERT OR REPLACE INTO desire_state
-                (id, drives_json, baselines_json, thoughts_json, tick_count, last_tick)
-                VALUES (?, ?, ?, ?, ?, ?)
+                (id, drives_json, baselines_json, thoughts_json, resolved_sources_json, tick_count, last_tick)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
                 """,
                 payload,
             )
@@ -155,6 +161,7 @@ class DesireEngine:
             "drives": {key: round(value, 2) for key, value in state.drives.items()},
             "baselines": {key: round(value, 2) for key, value in state.baselines.items()},
             "thoughts": [item.to_dict() for item in state.thoughts],
+            "resolved_sources": sorted(state.resolved_sources),
             "tick_count": state.tick_count,
             "last_tick": state.last_tick,
         }

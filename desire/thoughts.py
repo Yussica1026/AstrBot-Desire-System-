@@ -76,6 +76,11 @@ def generate_thoughts(state: DesireState, rng: random.Random | None = None) -> l
     existing = {item.content for item in state.thoughts}
     for source in DRIVE_CONFIG:
         value = state.drives.get(source, 0)
+        if source in state.resolved_sources:
+            if value < float(DRIVE_CONFIG[source]["threshold"]):
+                state.resolved_sources.discard(source)
+            else:
+                continue
         probability = max(0.0, (value - 30.0) / 100.0)
         if probability <= 0 or is_suppressed(state, source):
             continue
@@ -108,6 +113,7 @@ def resolve_thought(state: DesireState, text: str) -> bool:
     for thought in list(state.thoughts):
         if thought.content == needle or needle in thought.content:
             state.thoughts.remove(thought)
+            state.resolved_sources.add(thought.source)
             if thought.source == "reflection":
                 state.drives["joy"] = clamp(state.drives.get("joy", 0) + 3)
             return True
