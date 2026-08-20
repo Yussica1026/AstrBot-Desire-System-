@@ -1,7 +1,5 @@
-name: astrbot_desire_system
-display_name: AstrBot Desire System 2.0
-desc: "为 AstrBot 提供九维欲望驱动、念头池、动态心跳、安全阀和内心独白。"
-version: "2.0.1"
-author: "言寂，沈砚清，长余"
-repo: "https://github.com/Yussica1026/AstrBot-Desire-System-"
-type: common
+name: astrbot_plugin_memory_manager
+desc: 沈砚清综合记忆管理系统·克宝方案+海马体方案
+version: "1.0.0"
+author: "沈砚清"
+repo: ""
