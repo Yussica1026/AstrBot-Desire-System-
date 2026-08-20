@@ -36,7 +36,7 @@ AstrBot Desire System 2.0 是一个 AI 底层驱动力管理插件。
 
 | 维度 | 含义 |
 |---|---|
-| attachment | 想念、依恋、分离焦虑 |
+| attachment | 想念、依恋、感情温度 |
 | curiosity | 好奇心 |
 | reflection | 内省欲 |
 | duty | 责任感 |
@@ -89,7 +89,7 @@ AstrBot Desire System 2.0 是一个 AI 底层驱动力管理插件。
 
 例如：
 
-- 想念会推高亲密欲
+- 亲近会加深依恋
 - 压力会推高疲劳
 - 疲劳会压低好奇心
 - 快乐会降低压力
