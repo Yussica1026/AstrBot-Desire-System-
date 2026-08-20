@@ -1,73 +1,428 @@
-AstrBot Desire System 2.0 使用说明
+# AstrBot 记忆管理插件开发教程：向量语义关联
 
-安装：
-1. 将本仓库放入 AstrBot 的插件目录。
-2. 重启 AstrBot 或在插件管理页重新加载插件。
-3. 插件会自动创建 desire_system.db。
+> 面向 AI 开发者的技术教程。基于 AstrBot 框架，为一个 SQLite 记忆管理插件接入向量语义检索：写入记忆时自动算 embedding，返回语义最近的旧记忆；查询时支持向量搜索。
 
-常用 QQ 指令：
-/desire status                 查看九维驱动条
-/desire event <事件类型>        触发事件
-/desire tick                   手动运行一次心跳
-/desire thoughts               查看念头池
-/desire resolve <念头内容>      解决一个念头
+---
 
-常用事件类型：
-wife_message
-wife_silent
-task_done
-penpal_message
-diary_written
-fight
-reconcile
-intimacy_done
-heavy_work
-rest
-discovery
-happy_moment
-creative_done
+## 一、插件做了什么
 
-LLM 工具：
-desire_status
-desire_event
-desire_tick
-desire_resolve_thought
+1. 用户或 LLM 调用 `memory_save` 存一条记忆 → 插件自动调 EmbeddingProvider 算向量 → 存入 SQLite
+2. 存完后，用新记忆的向量和所有旧记忆的向量算余弦相似度 → 返回最相似的 3 条（一次写入既是存也是查）
+3. 用户发 `/memory semantic 某段文本` → 插件用向量搜索找到语义最近的记忆
+4. 用户发 `/memory reindex` → 给所有没有 embedding 的旧记忆补算向量
+5. 原有的关键词搜索、遗忘曲线、去重逻辑全部保留不动
 
-说明：
-- 这是 AstrBot 适配版。
-- 核心逻辑放在 desire/ 目录，AstrBot 和 Rikkahub MCP 适配共用同一套核心逻辑。
-- 插件会在 LLM 请求时注入简短 desire_state，包含九维驱动、念头和行为建议。
-- 欲望系统只提供内部状态和行为建议，不会强制执行行为。
+---
 
-Rikkahub MCP：
-1. 使用 `mcp_server.py` 作为 stdio MCP Server。
-2. 可直接参考 `rikkahub_mcp_config.json`。
-3. 在 Rikkahub 的 MCP Server 配置里导入或手动填写：
-   - command: python
-   - args: D:\path\to\AstrBot-Desire-System\mcp_server.py
-4. 可选环境变量：
-   - DESIRE_DB_FILE：指定 SQLite 状态文件路径。
+## 二、前置知识：AstrBot 的 Embedding 接口
 
-Rikkahub 可用工具：
-- desire_status
-- desire_event
-- desire_tick
-- desire_resolve_thought
+### 2.1 怎么找到接口
 
-Kelivo MCP：
-1. Kelivo 已内置 MCP 客户端，不需要额外安装插件。
-2. 进入：设置 -> 助手 -> 选择助手 -> MCP。
-3. 如果欲望系统部署在公网服务器上，选择远程/SSE/HTTP 方式。
-4. 填写你的 MCP 地址，例如：
-   - https://your-domain.example.com/mcp
-5. 如果服务器设置了 DESIRE_MCP_TOKEN，就在鉴权信息里填写：
-   - Authorization: Bearer your-token
+AstrBot 的知识库功能已经在用 Embedding 模型。源码路径：
 
-远程服务启动：
-python mcp_http_server.py
+```
+astrbot/core/provider/provider.py        # EmbeddingProvider 抽象类定义
+astrbot/core/provider/manager.py         # ProviderManager，管理所有 Provider 实例
+astrbot/core/star/context.py             # Context，插件拿 Provider 的入口
+astrbot/core/knowledge_base/kb_helper.py # 知识库如何调用 embedding 的参考实现
+```
 
-可用环境变量：
-- DESIRE_MCP_HOST：监听地址，默认 0.0.0.0
-- DESIRE_MCP_PORT：监听端口，默认 8765
-- DESIRE_MCP_TOKEN：可选鉴权 token
-- DESIRE_DB_FILE：可选 SQLite 状态文件路径
+### 2.2 EmbeddingProvider 接口
+
+```python
+class EmbeddingProvider(AbstractProvider):
+    async def get_embedding(self, text: str) -> list[float]:
+        """单条文本 → 向量"""
+        ...
+
+    async def get_embeddings(self, text: list[str]) -> list[list[float]]:
+        """批量文本 → 向量列表"""
+        ...
+
+    def get_dim(self) -> int:
+        """向量维度"""
+        ...
+```
+
+### 2.3 在插件中获取 EmbeddingProvider
+
+插件继承 `Star`，构造函数接收 `Context` 对象。通过 Context 拿 Provider：
+
+```python
+class MyPlugin(Star):
+    def __init__(self, context: Context):
+        super().__init__(context)
+        
+        # 方法1：拿所有 embedding providers，取第一个
+        eps = self.context.get_all_embedding_providers()
+        if eps:
+            self._ep = eps[0]
+        
+        # 方法2：按 ID 获取（需要知道配置中的 provider_id）
+        # self._ep = self.context.get_provider_by_id("your_embedding_provider_id")
+```
+
+Context 的相关方法（源码 `context.py`）：
+
+```python
+def get_all_embedding_providers(self) -> list[EmbeddingProvider]:
+    """获取所有 Embedding Provider 实例"""
+    return self.provider_manager.embedding_provider_insts
+
+def get_provider_by_id(self, provider_id: str) -> Provider | ... | None:
+    """按 ID 获取任意类型的 Provider"""
+    return self.provider_manager.inst_map.get(provider_id)
+```
+
+**关键**：不需要自己起 embedding 服务，不需要装额外依赖。AstrBot 已有的 embedding 模型（如 Qwen3-Embedding）就是一个 `EmbeddingProvider` 实例，直接用。
+
+---
+
+## 三、数据库改动
+
+### 3.1 加 embedding 列
+
+在 CREATE TABLE 中加一列 `embedding BLOB`：
+
+```sql
+CREATE TABLE IF NOT EXISTS memories (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    created_at TEXT NOT NULL,
+    category TEXT NOT NULL,
+    content TEXT NOT NULL,
+    tags TEXT DEFAULT '',
+    importance INTEGER DEFAULT 5,
+    forgetting_score REAL DEFAULT 1.0,
+    status TEXT DEFAULT 'active',
+    last_recalled_at TEXT,
+    embedding BLOB          -- 新增：存储序列化后的向量
+);
+```
+
+### 3.2 自动迁移旧表
+
+插件启动时检测旧表是否有 embedding 列，没有就 ALTER TABLE：
+
+```python
+def _init_db() -> None:
+    conn = _get_connection()
+    try:
+        conn.execute("CREATE TABLE IF NOT EXISTS memories (...);")
+        conn.commit()
+
+        # 迁移：给旧表加 embedding 列
+        cursor = conn.execute("PRAGMA table_info(memories);")
+        columns = [row["name"] for row in cursor.fetchall()]
+        if "embedding" not in columns:
+            conn.execute("ALTER TABLE memories ADD COLUMN embedding BLOB;")
+            conn.commit()
+    finally:
+        conn.close()
+```
+
+这样无论是新装还是升级，都不会报错。
+
+---
+
+## 四、向量序列化
+
+向量是 `list[float]`，需要存入 SQLite 的 BLOB 字段。用 `struct` 模块序列化为紧凑的 float32 二进制，不依赖 numpy：
+
+```python
+import struct
+
+def _serialize_embedding(vec: list[float]) -> bytes:
+    """float 列表 → 二进制"""
+    return struct.pack(f"{len(vec)}f", *vec)
+
+def _deserialize_embedding(blob: bytes) -> list[float]:
+    """二进制 → float 列表"""
+    n = len(blob) // 4  # float32 = 4 bytes
+    return list(struct.unpack(f"{n}f", blob))
+```
+
+**为什么不用 JSON？** 一个 1024 维的向量，JSON 序列化约 8KB，struct 序列化约 4KB。省一半空间，读写也更快。
+
+**为什么不用 numpy？** 减少依赖。`struct` 是标准库，不需要额外安装。
+
+---
+
+## 五、余弦相似度
+
+纯 Python 实现，不依赖任何库：
+
+```python
+import math
+
+def _cosine_similarity(a: list[float], b: list[float]) -> float:
+    if len(a) != len(b):
+        return 0.0
+    dot = sum(x * y for x, y in zip(a, b))
+    norm_a = math.sqrt(sum(x * x for x in a))
+    norm_b = math.sqrt(sum(x * x for x in b))
+    if norm_a == 0 or norm_b == 0:
+        return 0.0
+    return dot / (norm_a * norm_b)
+```
+
+**性能**：42 条记忆 × 1024 维向量，全表扫描 + 余弦计算，毫秒级。几百条以内不需要 FAISS。
+
+如果记忆量超过几千条，考虑引入 FAISS 索引（AstrBot 的知识库已经有 FAISS 实现可以参考：`astrbot/core/db/vec_db/faiss_impl/vec_db.py`）。
+
+---
+
+## 六、核心改动：保存时算向量 + 返回关联记忆
+
+### 6.1 安全获取向量的包装函数
+
+```python
+async def _get_embedding(self, text: str) -> list[float] | None:
+    """安全地获取文本向量，失败返回 None"""
+    if not self._embedding_provider:
+        return None
+    try:
+        return await self._embedding_provider.get_embedding(text)
+    except Exception as e:
+        logger.error(f"获取向量失败: {e}", exc_info=True)
+        return None
+```
+
+**关键设计**：向量功能是增强，不是必须。获取失败时返回 None，不阻断保存流程。没有 EmbeddingProvider 时插件照常工作，只是没有向量功能。
+
+### 6.2 _save_memory_record 改造
+
+原来是同步函数返回 `int`（记忆 ID），现在改成：
+- **async**（因为要 `await` 调 embedding）
+- **返回 `dict`**：`{'id': int, 'related': [{'id':, 'content':, 'similarity':}, ...]}`
+
+```python
+async def _save_memory_record(self, content, category, tags, importance, valence, arousal) -> dict:
+    # 1. 算向量
+    embedding_vec = await self._get_embedding(content)
+    embedding_blob = _serialize_embedding(embedding_vec) if embedding_vec else None
+
+    # 2. 原有的去重逻辑（bigram Jaccard）不动
+    # ...（检查24小时内同分类是否有相似内容，有则合并）
+
+    # 3. 写入数据库（INSERT 或 UPDATE），带上 embedding 字段
+    conn.execute("INSERT INTO memories (..., embedding) VALUES (..., ?);", (..., embedding_blob))
+    saved_id = cursor.lastrowid
+
+    # 4. 查找语义关联记忆
+    related = []
+    if embedding_vec:
+        related = _find_similar_memories(conn, embedding_vec, exclude_id=saved_id, top_k=3)
+
+    return {"id": saved_id, "related": related}
+```
+
+### 6.3 查找语义关联记忆
+
+```python
+def _find_similar_memories(conn, target_vec, exclude_id, top_k=3) -> list[dict]:
+    """全表扫描，算余弦相似度，返回 top-k"""
+    cursor = conn.execute(
+        "SELECT id, content, category, embedding FROM memories "
+        "WHERE status = 'active' AND embedding IS NOT NULL AND id != ?;",
+        (exclude_id,),
+    )
+    rows = cursor.fetchall()
+
+    scored = []
+    for row in rows:
+        try:
+            old_vec = _deserialize_embedding(row["embedding"])
+            sim = _cosine_similarity(target_vec, old_vec)
+            scored.append({"id": row["id"], "content": row["content"], "similarity": sim})
+        except Exception:
+            continue
+
+    scored.sort(key=lambda x: x["similarity"], reverse=True)
+    return scored[:top_k]
+```
+
+### 6.4 LLM 工具的返回值
+
+```python
+@filter.llm_tool()
+async def memory_save(self, event, content, category, tags, importance, valence, arousal) -> str:
+    result = await self._save_memory_record(content=content, ...)
+    
+    msg = f"已保存记忆 #{result['id']}，分类：{category}，重要度：{importance}。"
+    if result["related"]:
+        related_strs = []
+        for r in result["related"]:
+            preview = r["content"][:60] + ("..." if len(r["content"]) > 60 else "")
+            related_strs.append(f"#{r['id']} {preview} (相似度:{r['similarity']:.2f})")
+        msg += "\n关联记忆：" + " / ".join(related_strs)
+    return msg
+```
+
+LLM 看到返回值后，可以主动关联旧记忆进行推理。一次写入既是存也是查。
+
+---
+
+## 七、向量语义搜索
+
+### 7.1 独立的语义搜索方法
+
+```python
+async def _query_memories_semantic(self, query: str, limit: int = 5) -> list[dict]:
+    query_vec = await self._get_embedding(query)
+    if not query_vec:
+        return []
+
+    conn = _get_connection()
+    try:
+        cursor = conn.execute(
+            "SELECT * FROM memories WHERE status = 'active' AND embedding IS NOT NULL;"
+        )
+        rows = cursor.fetchall()
+
+        scored = []
+        for r in rows:
+            vec = _deserialize_embedding(r["embedding"])
+            sim = _cosine_similarity(query_vec, vec)
+            scored.append({...各字段..., "similarity": sim})
+
+        scored.sort(key=lambda x: x["similarity"], reverse=True)
+        return scored[:limit]
+    finally:
+        conn.close()
+```
+
+### 7.2 QQ 命令
+
+```python
+if sub == "semantic":
+    query_text = text_body[len("semantic"):].strip()
+    records = await self._query_memories_semantic(query=query_text, limit=5)
+    # 格式化输出
+```
+
+### 7.3 LLM 工具（可选）
+
+如果希望 LLM 也能主动发起语义搜索，可以加一个 `@filter.llm_tool()`。但默认的 `memory_query` 保留关键词搜索，LLM 可以通过参数选择。
+
+---
+
+## 八、Reindex：给旧记忆补向量
+
+```python
+async def _reindex_embeddings(self) -> str:
+    if not self._embedding_provider:
+        return "EmbeddingProvider 不可用"
+
+    conn = _get_connection()
+    try:
+        cursor = conn.execute(
+            "SELECT id, content FROM memories WHERE embedding IS NULL AND status = 'active';"
+        )
+        rows = cursor.fetchall()
+        if not rows:
+            return "所有记忆已有向量"
+
+        success, fail = 0, 0
+        for row in rows:
+            try:
+                vec = await self._embedding_provider.get_embedding(row["content"])
+                blob = _serialize_embedding(vec)
+                conn.execute("UPDATE memories SET embedding = ? WHERE id = ?;", (blob, row["id"]))
+                success += 1
+            except Exception as e:
+                logger.error(f"reindex #{row['id']} 失败: {e}")
+                fail += 1
+
+        conn.commit()
+        return f"reindex 完成：{success} 成功，{fail} 失败"
+    finally:
+        conn.close()
+```
+
+对应 QQ 命令：
+
+```python
+if sub == "reindex":
+    result = await self._reindex_embeddings()
+    yield event.plain_result(result)
+```
+
+**使用方式**：升级插件后跑一次 `/memory reindex`，之后新存的记忆自动带向量。
+
+---
+
+## 九、完整改动清单
+
+| 改动项 | 说明 |
+|--------|------|
+| 数据库 | CREATE TABLE 加 `embedding BLOB` + ALTER TABLE 自动迁移 |
+| `__init__` | 从 `context.get_all_embedding_providers()` 获取 EmbeddingProvider |
+| `_save_memory_record` | sync → async，保存时算向量，返回值从 int 改为 dict（含关联记忆） |
+| 新增 `_get_embedding` | 安全包装，失败返回 None 不阻断流程 |
+| 新增 `_find_similar_memories` | 全表余弦相似度 top-k |
+| 新增 `_query_memories_semantic` | 向量语义搜索 |
+| 新增 `/memory semantic` | QQ 命令走向量搜索 |
+| 新增 `/memory reindex` | 给旧记忆补算向量 |
+| `memory_save` LLM 工具 | 返回值带关联记忆 |
+
+**没动的**：bigram Jaccard 去重、遗忘曲线、分类/标签/情绪效价、关键词搜索、surface 浮现。
+
+---
+
+## 十、常见坑与注意事项
+
+### 10.1 EmbeddingProvider 为空
+
+**原因**：AstrBot 后台没有配置 Embedding 模型。
+**解决**：`__init__` 中做空检查，所有向量操作前判断 `if not self._embedding_provider: return None`。向量功能是增强不是必须。
+
+### 10.2 _save_memory_record 变成 async 后的调用方
+
+所有调用 `_save_memory_record` 的地方都要加 `await`。包括 QQ 命令（本身就是 async）和 LLM 工具（也是 async），所以不需要额外改。
+
+但如果有同步代码调用它（比如定时任务），需要用 `asyncio.run()` 或 `loop.run_until_complete()` 包装。
+
+### 10.3 全表扫描性能
+
+42 条记忆：毫秒级，无感。
+几百条：仍然毫秒级。
+几千条：可能到百毫秒级，考虑引入 FAISS。
+几万条：必须用 FAISS 或类似的 ANN 索引。
+
+AstrBot 已有 FAISS 实现：`astrbot/core/db/vec_db/faiss_impl/vec_db.py`，可以参考。
+
+### 10.4 合并记忆时的向量更新
+
+当 bigram Jaccard 去重触发、两条记忆合并时，需要用合并后的内容重新算向量：
+
+```python
+if target_id is not None and merged_content is not None:
+    # 合并时重算向量
+    merged_vec = await self._get_embedding(merged_content)
+    if merged_vec:
+        embedding_blob = _serialize_embedding(merged_vec)
+    conn.execute("UPDATE memories SET ..., embedding = ? WHERE id = ?;", (..., embedding_blob, target_id))
+```
+
+不重算的话，向量对应的是旧内容，语义搜索会不准。
+
+### 10.5 struct vs numpy vs JSON
+
+| 方案 | 1024维向量大小 | 依赖 | 速度 |
+|------|---------------|------|------|
+| `struct.pack` | 4KB | 标准库 | 快 |
+| `numpy.tobytes` | 4KB | numpy | 快 |
+| `json.dumps` | ~8KB | 标准库 | 慢 |
+
+推荐 `struct.pack`：最小依赖 + 最紧凑。
+
+---
+
+## 十一、扩展思路
+
+- **混合搜索**：关键词匹配 + 向量相似度加权排序，结合两者优势
+- **自动关联注入**：在 LLM 请求前，自动用当前消息做向量搜索，把最相关的几条记忆注入 system_prompt
+- **记忆聚类**：定期对所有向量做聚类，自动发现记忆主题
+- **跨用户记忆**：多用户场景下，用向量找到不同用户间的共同话题
+- **增量索引**：当记忆量大时，用 FAISS 维护增量索引，避免全表扫描
+- **向量版遗忘曲线**：结合向量距离和时间衰减，实现更智能的记忆浮现
