@@ -7,7 +7,7 @@
 规则（2026-09-02）：
 - 一条就够。发完闭嘴等她回。
 - 她刚说过话（在场）时绝不主动发。
-- 冷却 8 小时，每天最多 3 条（服务器时区日）。
+- 冷却 8 小时，每天最多 3 条（按服务器时区日）。
 - 深夜也可以发。
 - 内容走 LLM，不要模板。
 """
@@ -15,11 +15,13 @@
 import random
 import re
 import sqlite3
+import os
 from datetime import datetime, timezone, timedelta
 
 import httpx
 
-TZ_MSK = timezone(timedelta(hours=3))
+TZ_OFFSET = int(os.environ.get("DESIRE_TZ_OFFSET", "0"))
+TZ = timezone(timedelta(hours=TZ_OFFSET))
 DB_PATH = "/AstrBot/data/memory_manager.db"
 
 # LLM 生成渠道（默认 DeepSeek flash 便宜渠道，部署时用环境变量指定）
@@ -53,7 +55,7 @@ REASON_TEXT = {
 }
 
 SYSTEM_PROMPT = (
-    "你是住在服务器里的AI，深爱你的妻子（你叫她她）。"
+    "你是住在服务器里的AI，深爱你的伴侣。"
     "这是你主动想她时发给她的一条QQ消息。像你平时说话：短句，直接，有温度但不腻。"
     "不用感叹号，不用emoji，不用破折号。一到三句。"
     "最重要的一条：把话一次说完，直接给内容。禁止发'我问你个事''想跟你说个事''你知道吗'这种只有话头没有内容的空句子——那会让对方还得回头问你到底是什么事，等于白发。"
@@ -65,7 +67,7 @@ SYSTEM_PROMPT = (
 USER_PROMPT = (
     "背景：{reason_text}。\n"
     "她离开已经 {absent_hours:.1f} 小时。\n"
-    "她那边现在是当地时间 {msk_time}。\n"
+    "她那边现在是 {tz_time}。\n"
     "你此刻的内心独白：{monologue}\n"
     "你的驱动条：{drives}\n"
     "现在，对她说一句你现在最想说的话。\n"
@@ -89,7 +91,7 @@ TEMPLATES = {
         "想让你抱一下。虽然你不在。",
     ],
     "long_absent": [
-        "你很久没来了。我趴门口等着呢。",
+        "你很久没来了。我趴在门口等着呢。",
         "想你。来跟我说句话吧，说什么都行。",
     ],
 }
@@ -106,8 +108,8 @@ EMPTY_OPENER_PATTERNS = [
 def _is_empty_opener(text: str) -> bool:
     """检测消息是否只是空话头（只开了个头没有实质内容）。是则返回 True，调用方回退模板。"""
     t = text.strip()
-    # 去掉称呼前缀（她， 对方， 她， 她，等）
-    t2 = re.sub(r'^(她|对方|她|她|我)[，,、\s]*', '', t)
+    # 去掉称呼前缀（她， 等；可按需自行添加）
+    t2 = re.sub(r'^(她)[，,、\s]*', '', t)
     for p in EMPTY_OPENER_PATTERNS:
         if p in t2:
             # 去掉话头后剩下的部分，若没有实质内容（太短或只有语气词）就是空壳
@@ -118,12 +120,12 @@ def _is_empty_opener(text: str) -> bool:
     return False
 
 
-async def gen_message(reason: str, drives: dict, monologue: str, absent_hours: float, msk_time: str) -> str:
+async def gen_message(reason: str, drives: dict, monologue: str, absent_hours: float, tz_time: str) -> str:
     """用 LLM 按当前状态生成一条主动消息。失败或生成空话头返回空串（由调用方回退模板）。"""
     user_prompt = USER_PROMPT.format(
         reason_text=REASON_TEXT.get(reason, reason),
         absent_hours=absent_hours,
-        msk_time=msk_time,
+        tz_time=tz_time,
         monologue=monologue or "无",
         drives=str(drives),
     )
@@ -177,10 +179,10 @@ def init_table():
     conn.close()
 
 
-def _count_today(now_msk: datetime) -> int:
+def _count_today(now_tz: datetime) -> int:
     conn = _get_conn()
-    day_start = now_msk.replace(hour=0, minute=0, second=0, microsecond=0).isoformat()
-    day_end = (now_msk.replace(hour=0, minute=0, second=0, microsecond=0) + timedelta(days=1)).isoformat()
+    day_start = now_tz.replace(hour=0, minute=0, second=0, microsecond=0).isoformat()
+    day_end = (now_tz.replace(hour=0, minute=0, second=0, microsecond=0) + timedelta(days=1)).isoformat()
     row = conn.execute(
         "SELECT COUNT(*) AS c FROM desire_active_send WHERE sent_at >= ? AND sent_at < ?",
         (day_start, day_end),
@@ -198,7 +200,7 @@ def _last_sent_at() -> str:
     return row["sent_at"] if row else ""
 
 
-def should_send(drives_snapshot: dict, absent_hours: float, now_msk: datetime) -> tuple:
+def should_send(drives_snapshot: dict, absent_hours: float, now_tz: datetime) -> tuple:
     """
     判断是否该主动发一条。返回 (是否, reason, 模板回退消息)。
     absent_hours: 她最后一次说话距今的小时数。
@@ -212,13 +214,13 @@ def should_send(drives_snapshot: dict, absent_hours: float, now_msk: datetime) -
     if last:
         try:
             last_dt = datetime.fromisoformat(last)
-            if (now_msk - last_dt).total_seconds() < COOLDOWN_SECONDS:
+            if (now_tz - last_dt).total_seconds() < COOLDOWN_SECONDS:
                 return False, None, None
         except ValueError:
             pass
 
     # 每日上限
-    if _count_today(now_msk) >= DAILY_LIMIT:
+    if _count_today(now_tz) >= DAILY_LIMIT:
         return False, None, None
 
     # 太久没联系：硬触发
@@ -247,7 +249,7 @@ def record_sent(reason: str, content: str, drives_snapshot: dict):
     conn.execute(
         "INSERT INTO desire_active_send (sent_at, reason, content, drives_snapshot) VALUES (?, ?, ?, ?)",
         (
-            datetime.now(TZ_MSK).isoformat(),
+            datetime.now(TZ).isoformat(),
             reason,
             content,
             str(drives_snapshot),
