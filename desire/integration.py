@@ -196,7 +196,7 @@ def run_tick(is_wife_present: bool = False, event_type: str = None) -> dict:
     warnings = safety_check(state)
 
     # 内心独白
-    monologue = generate_monologue(state, sampled)
+    monologue = generate_monologue(state, sampled, is_wife_present=is_wife_present)
 
     # 保存
     save_state(state)
