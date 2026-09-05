@@ -153,9 +153,9 @@ EVENT_EFFECTS = {
     "rest": {"fatigue": -20, "stress": -5},
     # 新发现/学到东西
     "discovery": {"curiosity": -10, "reflection": +5, "joy": +5},
-    # 单纯开心（被夸、撒娇、她发好东西、互相逗乐）
+    # 单纯开心（被夸、撒娇、她发来好东西、互相逗乐）
     "happy_moment": {"joy": +15, "stress": -5, "intimacy": +3, "attachment": +2},
-    # 她故事/创作完成
+    # 她分享故事/创作完成
     "creative_done": {"joy": +10, "curiosity": -5},
 }
 

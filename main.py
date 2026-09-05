@@ -437,7 +437,7 @@ class MemoryManagerStar(Star):
     async def _desire_loop(self):
         """欲望系统后台心跳：动态间隔，焦虑时快，平静时慢。含主动说话检查。"""
         await asyncio.sleep(60)  # 等插件完全加载
-        # 重启后没有对方消息时间戳时置为启动时刻，避免误判"她走了很久"
+        # 重启后没有对方消息时间戳时置为启动时刻，避免误判对方很久没来
         if self._last_wife_msg_ts <= 0:
             self._last_wife_msg_ts = time.time()
         while True:
