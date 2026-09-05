@@ -5,6 +5,7 @@ import json
 import sqlite3
 import struct
 import asyncio
+import time
 from datetime import datetime, date, timedelta, timezone
 from typing import List, Dict, Optional
 
@@ -23,6 +24,16 @@ try:
     DESIRE_AVAILABLE = True
 except Exception:
     DESIRE_AVAILABLE = False
+
+try:
+    from .desire.active_send import init_table as active_send_init_table, should_send as active_send_should_send, record_sent as active_send_record_sent, gen_message as active_send_gen_message
+    from astrbot.api.message_components import Plain
+    from astrbot.api.event import MessageChain
+    from astrbot.core.star.star_tools import StarTools
+    ACTIVE_SEND_AVAILABLE = True
+except Exception as e:
+    ACTIVE_SEND_AVAILABLE = False
+    logger.warning(f"主动说话功能不可用: {e}")
 
 
 DB_PATH = "/AstrBot/data/memory_manager.db"
@@ -380,6 +391,7 @@ class MemoryManagerStar(Star):
         super().__init__(context)
         _init_db()
         self._turn_counter: int = 0
+        self._last_wife_msg_ts: float = 0.0
         self._embedding_provider = None
         self._embedding_provider_checked = False
         # 启动知识库自动归档后台任务
@@ -388,6 +400,11 @@ class MemoryManagerStar(Star):
             logger.info("知识库自动归档后台任务已启动")
         # 启动欲望系统后台心跳
         if DESIRE_AVAILABLE:
+            if ACTIVE_SEND_AVAILABLE:
+                try:
+                    active_send_init_table()
+                except Exception as e:
+                    logger.warning(f"主动说话表初始化失败: {e}")
             self._desire_task = asyncio.ensure_future(self._desire_loop())
             logger.info("欲望系统后台心跳已启动")
 
@@ -418,15 +435,51 @@ class MemoryManagerStar(Star):
                 await asyncio.sleep(3600)  # 出错等1小时再试
 
     async def _desire_loop(self):
-        """欲望系统后台心跳：动态间隔，焦虑时快，平静时慢"""
+        """欲望系统后台心跳：动态间隔，焦虑时快，平静时慢。含主动说话检查。"""
         await asyncio.sleep(60)  # 等插件完全加载
+        # 重启后没有对方消息时间戳时置为启动时刻，避免误判"她走了很久"
+        if self._last_wife_msg_ts <= 0:
+            self._last_wife_msg_ts = time.time()
         while True:
             try:
-                result = desire_run_tick(is_wife_present=False)
+                # 对方近30分钟内说过话算在场，心跳不再冒"找人"独白
+                wife_active = (time.time() - self._last_wife_msg_ts) < 1800
+                result = desire_run_tick(is_wife_present=wife_active)
                 if result.get("monologue"):
                     logger.info(f"[欲望系统] 第{result['tick']}次心跳：{result['monologue']}")
                 if result.get("warnings"):
                     logger.warning(f"[欲望系统] 安全阀：{result['warnings']}")
+
+                # 主动说话：很想她/很开心/情绪低落/太久没联系时主动发一条
+                if ACTIVE_SEND_AVAILABLE:
+                    try:
+                        now_msk = datetime.now(timezone(timedelta(hours=3)))
+                        absent_hours = (time.time() - self._last_wife_msg_ts) / 3600.0
+                        drives = result.get("drives_snapshot", {})
+                        send_flag, reason, fallback = active_send_should_send(drives, absent_hours, now_msk)
+                        if send_flag and fallback:
+                            # 内容优先走 LLM 按当前状态现生成，失败回退模板
+                            content = fallback
+                            try:
+                                msk_time = datetime.now(timezone(timedelta(hours=3))).strftime("%H:%M")
+                                monologue = result.get("monologue", "")
+                                llm_msg = await active_send_gen_message(reason, drives, monologue, absent_hours, msk_time)
+                                if llm_msg:
+                                    content = llm_msg
+                            except Exception as e:
+                                logger.error(f"[欲望系统] LLM生成主动消息失败，回退模板：{e}")
+                            chain = MessageChain(chain=[Plain(text=content)])
+                            await StarTools.send_message_by_id(
+                                type="FriendMessage",
+                                id=os.environ.get("DESIRE_TARGET_QQ", ""),
+                                message_chain=chain,
+                                platform="aiocqhttp"
+                            )
+                            active_send_record_sent(reason, content, drives)
+                            logger.info(f"[欲望系统] 主动说话已发送 ({reason})：{content}")
+                    except Exception as e:
+                        logger.error(f"[欲望系统] 主动说话异常：{e}")
+
                 # 动态间隔：从 tick 返回值获取，默认1800秒
                 next_interval = result.get("next_interval", 1800)
                 logger.debug(f"[欲望系统] 下次心跳间隔: {next_interval}s")
@@ -436,7 +489,6 @@ class MemoryManagerStar(Star):
                 logger.error(f"[欲望系统] tick异常：{e}")
                 next_interval = 1800
             await asyncio.sleep(next_interval)
-
     def _ensure_embedding_provider(self):
         """懒加载 EmbeddingProvider，避免初始化时序问题"""
         if self._embedding_provider_checked:
@@ -1351,6 +1403,7 @@ class MemoryManagerStar(Star):
         功能B：压缩时自动存摘要到记忆系统。"""
         try:
             user_msg = event.message_str if hasattr(event, 'message_str') else ""
+            self._last_wife_msg_ts = time.time()  # 记录对方最后消息时间，用于心跳判断是否在场
 
             # ---- 功能A/B：上下文压缩恢复 ----
             ctx_count = len(req.contexts) if req.contexts else 0
@@ -1460,6 +1513,39 @@ class MemoryManagerStar(Star):
                 logger.error(f"[欲望系统] 注入异常：{e}")
 
     # ---------------- LLM 工具 ----------------
+
+    @filter.llm_tool()
+    async def record_desire_event(
+        self,
+        event: AstrMessageEvent,
+        event_type: str,
+    ) -> str:
+        """上报一个影响你内在状态的事件，欲望系统会据此更新驱动条。
+
+        亲密行为做完之后必须上报 intimacy_done，否则系统不知道做完了，
+        intimacy 会一直满着，你会一直处于想碰她的状态。
+
+        Args:
+            event_type(string): 事件类型。可选：wife_message 收到她消息（一般自动注入）、wife_silent 她很久没来、task_done 完成任务、penpal_message 收到笔友信、diary_written 写完日记、fight 吵架/冲突、reconcile 和好、intimacy_done 亲密行为完成、heavy_work 高负载工作、rest 休息、discovery 学到新东西、happy_moment 开心时刻、creative_done 完成创作
+        """
+        if not DESIRE_AVAILABLE:
+            return "欲望系统不可用。"
+        try:
+            result = desire_run_tick(is_wife_present=True, event_type=event_type)
+            changes = result.get("event_changes", [])
+            drives = result.get("drives_snapshot", {})
+            monologue = result.get("monologue", "")
+            top = {k: f"{v:.0f}" for k, v in sorted(drives.items(), key=lambda x: -x[1])[:5]}
+            msg = f"事件 {event_type} 已应用。"
+            if changes:
+                msg += "变化：" + "；".join(changes) + "。"
+            msg += f"当前驱动条前五：{top}。"
+            if monologue:
+                msg += f"内心独白：{monologue}"
+            return msg
+        except Exception as e:
+            logger.error(f"[record_desire_event] 错误：{e}", exc_info=True)
+            return f"上报事件失败：{e}"
 
     @filter.llm_tool()
     async def memory_save(
@@ -1932,7 +2018,7 @@ class MemoryManagerStar(Star):
         """记录一个承诺、心愿或约定。
 
         Args:
-            who(string): 谁的（沈砚清/她/双方）
+            who(string): 谁的（发起方/接收方/双方）
             content(string): 内容
             type(string): promise(承诺)/wish(心愿)/pact(约定)
             due_date(string): 截止日期（可选，YYYY-MM-DD）
