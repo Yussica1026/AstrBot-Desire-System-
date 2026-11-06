@@ -9,6 +9,11 @@
 
 ---
 
+## 更新日志 2026-11-06
+
+- 修复：当前引擎已改用模块函数，但 MCP 入口仍导入已不存在的 `DesireEngine`，导致 HTTP / stdio 服务启动时报 `ImportError`。MCP 现通过独立的 `desire/mcp_engine.py` 连接当前驱动、念头和心跳实现。
+- MCP 按 `DESIRE_DB_FILE` 使用独立状态文件；保留 AstrBot 原有函数接口及其数据库路径。现有对象格式和旧 MCP 数值格式的状态文件均可读取，更新状态时保留原表结构及无关数据。
+
 ## 更新日志 2026-09-05
 
 - 新增：主动说话功能（desire/active_send.py）。当很想对方、很开心、情绪低落或对方长时间没联系时，由 AI 主动发一条消息。内容优先走 LLM 按当前状态生成，失败回退模板。含冷却时间、每日上限、对方在场不打扰等规则。
@@ -302,6 +307,26 @@ Kelivo 已内置 MCP 客户端能力，不需要改 Kelivo 源码，也不需要
 ```
 
 本仓库提供 `mcp_http_server.py`，用于部署成远程 MCP HTTP 服务。它适合部署在任意可以公网访问的环境里，例如云服务器、容器、自己的主机反代或其他支持 Python 服务的环境；不绑定某一家云服务商。
+
+### 更新后先检查导入
+
+请完整更新本仓库代码，至少同步 `mcp_server.py` 和新增的 `desire/mcp_engine.py`，不要只覆盖 `desire/integration.py`。本服务使用 Python 标准库，不需要为此安装 `mcp` 或 `requests`。
+
+在包含 `mcp_http_server.py` 的插件目录执行：
+
+```bash
+python -B -c "import mcp_server, mcp_http_server; print('IMPORT_OK')"
+```
+
+输出 `IMPORT_OK` 后再启动服务。该命令只检查导入，不会创建状态数据库。若雨云 AstrBot 镜像使用默认插件布局，可先进入 `/AstrBot/data/plugins/astrbot_plugin_memory_manager`；其他安装方式以实际插件目录为准。
+
+首次部署如需把 MCP 状态放在持久化数据目录，可先指定：
+
+```bash
+export DESIRE_DB_FILE=/AstrBot/data/desire-mcp/state.db
+```
+
+已有 MCP 状态文件则继续使用原来的 `DESIRE_DB_FILE`。未设置时仍使用插件目录下的 `desire_system.db`；MCP 不会擅自改写 AstrBot 的默认 `memory_manager.db`。更新前按需保留私有状态备份，不把数据库、聊天记录或凭据上传到公开反馈中。
 
 本地启动示例：
 

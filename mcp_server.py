@@ -5,7 +5,7 @@ import os
 import sys
 from typing import Any
 
-from desire.integration import DesireEngine
+from desire.mcp_engine import DesireEngine
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DB_FILE = os.environ.get("DESIRE_DB_FILE") or os.path.join(BASE_DIR, "desire_system.db")
